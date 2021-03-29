@@ -1,18 +1,44 @@
 var axios = require('axios');
+const mysql = require('mysql2');
+require('dotenv').config(); // load environment variables
+
+authToken = process.env.BRAWLSTARS_AUTH_TOKEN
+
+const MYSQL_CONNECTION_POOL = mysql.createPool({
+  host: process.env.MYSQL_HOST,
+  user: process.env.MYSQL_USER,
+  password: process.env.MYSQL_PASSWORD,
+  database: process.env.MYSQL_DATABASE,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
+});
+
+const BRAWLSTARS_ENDPOINT = 'https://api.brawlstars.com/v1'
+
+let stripPoundSign = (tag) => tag.replace(/[#]/g, '');
 
 var config = {
   method: 'get',
-  url: 'https://api.brawlstars.com/v1/brawlers',
+  url: `${BRAWLSTARS_ENDPOINT}/brawlers`,
   headers: {
-    'Authorization': 'Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjA5MGY1NTY2LTExYTAtNGExNi1hMzQzLTRiNjc0M2VkYjdiNSIsImlhdCI6MTYxNTQ3ODk3OCwic3ViIjoiZGV2ZWxvcGVyLzc4MWUyYmZlLTU3OTQtMTkyOC0zOTFiLWY0M2I1NTQwZGRjNyIsInNjb3BlcyI6WyJicmF3bHN0YXJzIl0sImxpbWl0cyI6W3sidGllciI6ImRldmVsb3Blci9zaWx2ZXIiLCJ0eXBlIjoidGhyb3R0bGluZyJ9LHsiY2lkcnMiOlsiOTkuMjMuMTM5Ljk1Il0sInR5cGUiOiJjbGllbnQifV19.FxH0cPZfUYkk5yn1-QeWI3a_fFhU_uAsBV-6cHKTHcdVt7TmypyGMhhmHdjDhk5grEPD8HnClytz4zvslZiYmQ'
+    'Authorization': authToken
   }
 };
 
 var playerConfig = (playerid) => ({
   method: 'get',
-  url: `https://api.brawlstars.com/v1/players/${playerid}`,
+  url: `${BRAWLSTARS_ENDPOINT}/players/${playerid}`,
   headers: {
-    'Authorization': 'Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjA5MGY1NTY2LTExYTAtNGExNi1hMzQzLTRiNjc0M2VkYjdiNSIsImlhdCI6MTYxNTQ3ODk3OCwic3ViIjoiZGV2ZWxvcGVyLzc4MWUyYmZlLTU3OTQtMTkyOC0zOTFiLWY0M2I1NTQwZGRjNyIsInNjb3BlcyI6WyJicmF3bHN0YXJzIl0sImxpbWl0cyI6W3sidGllciI6ImRldmVsb3Blci9zaWx2ZXIiLCJ0eXBlIjoidGhyb3R0bGluZyJ9LHsiY2lkcnMiOlsiOTkuMjMuMTM5Ljk1Il0sInR5cGUiOiJjbGllbnQifV19.FxH0cPZfUYkk5yn1-QeWI3a_fFhU_uAsBV-6cHKTHcdVt7TmypyGMhhmHdjDhk5grEPD8HnClytz4zvslZiYmQ'
+    'Authorization': authToken
+  }
+});
+
+var battleLogConfig = (playerid) => ({
+  method: 'get',
+  url: `${BRAWLSTARS_ENDPOINT}/players/${playerid}/battlelog`,
+  headers: {
+    'Authorization': authToken
   }
 });
 
@@ -48,6 +74,19 @@ let getPlayer = (playerid) => {
   })
 }
 
+let getBattleLog = (playerid) => {
+  return new Promise((resolve, reject) => {
+    axios(battleLogConfig(playerid))
+      .then(function (response) {
+        resolve(response.data);
+      })
+      .catch(function (error) {
+        console.log(error);
+        reject(error);
+      });
+  })
+}
+
 let brawlers_promise = getBrawlers();
 
 let getStarPowerInfo = (userid) => {
@@ -57,7 +96,7 @@ let getStarPowerInfo = (userid) => {
     .then(([brawlers, player]) => {
       brawlers = brawlers.items; //nested shenanigans
 
-
+      // Every star power in the game
       let allStarPowers = [];
       brawlers.forEach(brawler => {
         brawler.starPowers.forEach(thisStarPower => {
@@ -65,6 +104,7 @@ let getStarPowerInfo = (userid) => {
         })
       });
 
+      // Star powers the player has unlocked
       let playerStarPowers = [];
       player.brawlers.forEach(brawler => {
         brawler.starPowers.forEach(thisStarPower => {
@@ -72,6 +112,7 @@ let getStarPowerInfo = (userid) => {
         })
       });
 
+      // Count level 10 brawlers
       let lvl10brawlers = player.brawlers.filter(b => b.power == 10).length
 
       console.log(`=== ${player.name} ===`)
@@ -85,4 +126,125 @@ let getStarPowerInfo = (userid) => {
     })
 }
 
-boisIds.forEach(id => getStarPowerInfo(id))
+/**
+ * Query matches for player and insert into MySQL
+ * @param {*} userid 
+ */
+let updateMatches = (userid) => {
+  let battlelogPromise = getBattleLog(userid);
+  battlelogPromise.then((battlelogresponse) => {
+    let battles = battlelogresponse.items;
+
+    battles.forEach((metaBattle) => {
+      let thisBattle = metaBattle.battle; // Extract layer from JSON
+      console.log(thisBattle);
+
+      let players = thisBattle.teams[0].concat(thisBattle.teams[1])
+      let playerTags = players.map((p) => p.tag)
+
+      let primaryPlayerTag = stripPoundSign(playerTags.sort()[0]); // First alphanumeric sorted tag
+      console.log(players)
+
+      bt = metaBattle.battleTime;
+      let battleDateTimeString = bt.substr(0, 4) + '-' +
+        bt.substr(4, 2) + '-' +
+        bt.substr(6, 2) + ' ' +
+        bt.substr(9, 2) + ':' +
+        bt.substr(11, 2) + ':' +
+        bt.substr(13, 2);
+
+      // Write battle row
+      MYSQL_CONNECTION_POOL.execute(`
+        INSERT INTO battles
+        (
+          primaryPlayerTag,
+          battleTime,
+          eventId,
+          map,
+          mode,
+          duration,
+          type
+        )
+        VALUES
+        (
+          '${primaryPlayerTag}',
+          '${battleDateTimeString}',
+          ${metaBattle.event.id},
+          '${metaBattle.event.map}',
+          '${metaBattle.event.mode}',
+          ${thisBattle.duration},
+          '${thisBattle.type}'
+        )
+        `, (err, rows) => {
+        if (err) {
+          console.log(err);
+        }
+        console.log(rows);
+      })
+
+      // Write player rows
+      players.forEach((p) => {
+        MYSQL_CONNECTION_POOL.execute(`
+        INSERT INTO players
+        (
+          playerId,
+          name
+        )
+        VALUES
+        (
+          '${stripPoundSign(p.tag)}',
+          '${p.name}'
+        )
+        `, (err, rows) => {
+          if (err) {
+            console.log(err);
+          }
+        })
+      })
+
+      // Write Player Battle join table
+      // Write player rows
+      players.forEach((p) => {
+        MYSQL_CONNECTION_POOL.execute(`
+          INSERT INTO battles_players
+          (
+            primaryPlayerTag,
+            playerId,
+            battleTime,
+            brawlerId,
+            brawlerName,
+            brawlerPower,
+            trophies
+          )
+          VALUES
+          (
+            '${primaryPlayerTag}',
+            '${stripPoundSign(p.tag)}',
+            '${battleDateTimeString}',
+            ${p.brawler.id},
+            '${p.brawler.name}',
+            ${p.brawler.power},
+            ${p.brawler.trophies}
+          )
+          `, (err, rows) => {
+          if (err) {
+            console.log(err);
+          }
+        })
+      })
+
+    })
+
+  })
+
+}
+
+//boisIds.forEach(id => getStarPowerInfo(id))
+
+updateMatches(myUserId)
+
+// MYSQL_CONNECTION_POOL.query(`select * from players`, (err, rows, fields) => {
+//   rows.forEach((row) => {
+//     console.log(row);
+//   })
+// })
