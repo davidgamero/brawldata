@@ -126,6 +126,25 @@ let getStarPowerInfo = (userid) => {
     })
 }
 
+const flipResult = (result) => result == 'defeat' ? 'victory' : 'defeat';
+
+let getResult = (queryUserId, player, battle) => {
+  let queryTag = queryUserId.substring(3);
+  let playerTag = stripPoundSign(player.tag);
+
+  let team0tags = battle.teams[0].map((p) => stripPoundSign(p.tag));
+  let team1tags = battle.teams[1].map((p) => stripPoundSign(p.tag)); // not used, maybe assert a sanity check
+
+  let getTeamNumber = (tag) => team0tags.includes(tag) ? 0 : 1;
+
+  if (getTeamNumber(playerTag) == getTeamNumber(queryTag)) {
+    return battle.result;
+  } else {
+    return flipResult(battle.result);
+  }
+
+}
+
 /**
  * Query matches for player and insert into MySQL
  * @param {*} userid 
@@ -137,8 +156,8 @@ let updateMatches = (userid) => {
 
     battles.forEach((metaBattle) => {
       let thisBattle = metaBattle.battle; // Extract layer from JSON
-      console.log(thisBattle);
-
+      //console.log(thisBattle);
+      //console.log(userid);
       let players = thisBattle.teams[0].concat(thisBattle.teams[1])
       let playerTags = players.map((p) => p.tag)
 
@@ -214,7 +233,8 @@ let updateMatches = (userid) => {
             brawlerId,
             brawlerName,
             brawlerPower,
-            trophies
+            trophies,
+            result
           )
           VALUES
           (
@@ -224,7 +244,8 @@ let updateMatches = (userid) => {
             ${p.brawler.id},
             '${p.brawler.name}',
             ${p.brawler.power},
-            ${p.brawler.trophies}
+            ${p.brawler.trophies},
+            '${getResult(userid, p, thisBattle)}'
           )
           `, (err, rows) => {
           if (err) {
@@ -240,8 +261,9 @@ let updateMatches = (userid) => {
 }
 
 //boisIds.forEach(id => getStarPowerInfo(id))
+boisIds.forEach(id => updateMatches(id))
 
-updateMatches(myUserId)
+//updateMatches(myUserId)
 
 // MYSQL_CONNECTION_POOL.query(`select * from players`, (err, rows, fields) => {
 //   rows.forEach((row) => {
