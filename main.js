@@ -1,5 +1,5 @@
 var axios = require('axios');
-const mysql = require('mysql2');
+const mysql = require('mysql2/promise');
 require('dotenv').config(); // load environment variables
 
 authToken = process.env.BRAWLSTARS_AUTH_TOKEN
@@ -28,7 +28,7 @@ var config = {
 
 var playerConfig = (playerid) => ({
   method: 'get',
-  url: `${BRAWLSTARS_ENDPOINT}/players/${playerid}`,
+  url: `${BRAWLSTARS_ENDPOINT}/players/%23${playerid}`,
   headers: {
     'Authorization': authToken
   }
@@ -36,15 +36,15 @@ var playerConfig = (playerid) => ({
 
 var battleLogConfig = (playerid) => ({
   method: 'get',
-  url: `${BRAWLSTARS_ENDPOINT}/players/${playerid}/battlelog`,
+  url: `${BRAWLSTARS_ENDPOINT}/players/%23${playerid}/battlelog`,
   headers: {
     'Authorization': authToken
   }
 });
 
-let myUserId = "%2392YL98GPG";
-let wakaUserId = "%238P0RGY9VJ";
-let joshUserId = "%238YUCQCRU2";
+let myUserId = "92YL98GPG";
+let wakaUserId = "8P0RGY9VJ";
+let joshUserId = "8YUCQCRU2";
 
 let boisIds = [myUserId, wakaUserId, joshUserId];
 
@@ -61,9 +61,9 @@ let getBrawlers = () => {
   })
 }
 
-let getPlayer = (playerid) => {
+let getPlayer = (playertag) => {
   return new Promise((resolve, reject) => {
-    axios(playerConfig(playerid))
+    axios(playerConfig(playertag))
       .then(function (response) {
         resolve(response.data);
       })
@@ -74,9 +74,9 @@ let getPlayer = (playerid) => {
   })
 }
 
-let getBattleLog = (playerid) => {
+let getBattleLog = (playertag) => {
   return new Promise((resolve, reject) => {
-    axios(battleLogConfig(playerid))
+    axios(battleLogConfig(playertag))
       .then(function (response) {
         resolve(response.data);
       })
@@ -89,8 +89,8 @@ let getBattleLog = (playerid) => {
 
 let brawlers_promise = getBrawlers();
 
-let getStarPowerInfo = (userid) => {
-  let player_promise = getPlayer(userid);
+let getStarPowerInfo = (usertag) => {
+  let player_promise = getPlayer(usertag);
 
   Promise.all([brawlers_promise, player_promise])
     .then(([brawlers, player]) => {
@@ -128,140 +128,224 @@ let getStarPowerInfo = (userid) => {
 
 const flipResult = (result) => result == 'defeat' ? 'victory' : 'defeat';
 
-let getResult = (queryUserId, player, battle) => {
-  let queryTag = queryUserId.substring(3);
+let getResult = (queryUserTag, player, battle) => {
   let playerTag = stripPoundSign(player.tag);
 
+  if (!battle.teams || battle.teams.length != 2) {
+    return null; // showdown games or errors in transmissioin
+  }
   let team0tags = battle.teams[0].map((p) => stripPoundSign(p.tag));
   let team1tags = battle.teams[1].map((p) => stripPoundSign(p.tag)); // not used, maybe assert a sanity check
 
   let getTeamNumber = (tag) => team0tags.includes(tag) ? 0 : 1;
 
-  if (getTeamNumber(playerTag) == getTeamNumber(queryTag)) {
+  if (getTeamNumber(playerTag) == getTeamNumber(queryUserTag)) {
     return battle.result;
   } else {
     return flipResult(battle.result);
   }
+}
 
+/**
+ * The stupid API format doesn't folllow ISO standard so we gotta do this gross shit
+ * @param apiDateTime 
+ */
+let parseApiDateTime = (apiDateTime) => {
+  let bt = apiDateTime;
+
+  let parsed = bt.substr(0, 4) + '-' +
+    bt.substr(4, 2) + '-' +
+    bt.substr(6, 2) + ' ' +
+    bt.substr(9, 2) + ':' +
+    bt.substr(11, 2) + ':' +
+    bt.substr(13, 2);
+
+  return parsed;
 }
 
 /**
  * Query matches for player and insert into MySQL
- * @param {*} userid 
+ * @param {*} userTag 
  */
-let updateMatches = (userid) => {
-  let battlelogPromise = getBattleLog(userid);
-  battlelogPromise.then((battlelogresponse) => {
-    let battles = battlelogresponse.items;
+let updateMatches = (userTag) => {
+  return new Promise((resolve, reject) => {
+    console.log(`${userTag} | requesting battle log`);
 
-    battles.forEach((metaBattle) => {
-      let thisBattle = metaBattle.battle; // Extract layer from JSON
-      //console.log(thisBattle);
-      //console.log(userid);
-      let players = thisBattle.teams[0].concat(thisBattle.teams[1])
-      let playerTags = players.map((p) => p.tag)
+    let battlelogPromise = getBattleLog(userTag);
 
-      let primaryPlayerTag = stripPoundSign(playerTags.sort()[0]); // First alphanumeric sorted tag
-      console.log(players)
+    battlelogPromise.then((battlelogresponse) => {
+      console.log(`${userTag} | recieved battle log with ${battlelogresponse.items.length} items`);
+      let battles = battlelogresponse.items;
 
-      bt = metaBattle.battleTime;
-      let battleDateTimeString = bt.substr(0, 4) + '-' +
-        bt.substr(4, 2) + '-' +
-        bt.substr(6, 2) + ' ' +
-        bt.substr(9, 2) + ':' +
-        bt.substr(11, 2) + ':' +
-        bt.substr(13, 2);
+      let battlePromises = battles.map((metaBattle) => {
+        return new Promise((resolve, reject) => {
+          let thisBattle = metaBattle.battle; // Extract layer from JSON
 
-      // Write battle row
-      MYSQL_CONNECTION_POOL.execute(`
-        INSERT INTO battles
-        (
-          primaryPlayerTag,
-          battleTime,
-          eventId,
-          map,
-          mode,
-          duration,
-          type
-        )
-        VALUES
-        (
-          '${primaryPlayerTag}',
-          '${battleDateTimeString}',
-          ${metaBattle.event.id},
-          '${metaBattle.event.map}',
-          '${metaBattle.event.mode}',
-          ${thisBattle.duration},
-          '${thisBattle.type}'
-        )
-        `, (err, rows) => {
-        if (err) {
-          console.log(err);
-        }
-        console.log(rows);
-      })
+          let mySQLPromises = [];
 
-      // Write player rows
-      players.forEach((p) => {
-        MYSQL_CONNECTION_POOL.execute(`
-        INSERT INTO players
-        (
-          playerId,
-          name
-        )
-        VALUES
-        (
-          '${stripPoundSign(p.tag)}',
-          '${p.name}'
-        )
-        `, (err, rows) => {
-          if (err) {
-            console.log(err);
+          let players = [];
+          if (thisBattle.teams) {
+            players = thisBattle.teams[0].concat(thisBattle.teams[1]);
+          } else {
+            // Showdown  players
+            players = thisBattle.players;
           }
-        })
-      })
 
-      // Write Player Battle join table
-      // Write player rows
-      players.forEach((p) => {
-        MYSQL_CONNECTION_POOL.execute(`
-          INSERT INTO battles_players
-          (
+          let playerTags = players.map((p) => p.tag)
+
+          let primaryPlayerTag = stripPoundSign(playerTags.sort()[0]); // First alphanumeric sorted tag
+
+          let apiBattleTime = metaBattle.battleTime;
+          let battleDateTimeString = parseApiDateTime(apiBattleTime);
+
+          console.log(`${userTag} | Processing match ${primaryPlayerTag} @${battleDateTimeString}`)
+
+          let battleInsertParams = [
             primaryPlayerTag,
-            playerId,
-            battleTime,
-            brawlerId,
-            brawlerName,
-            brawlerPower,
-            trophies,
-            result
-          )
-          VALUES
-          (
-            '${primaryPlayerTag}',
-            '${stripPoundSign(p.tag)}',
-            '${battleDateTimeString}',
-            ${p.brawler.id},
-            '${p.brawler.name}',
-            ${p.brawler.power},
-            ${p.brawler.trophies},
-            '${getResult(userid, p, thisBattle)}'
-          )
-          `, (err, rows) => {
-          if (err) {
-            console.log(err);
+            battleDateTimeString,
+            metaBattle.event.id,
+            metaBattle.event.map,
+            metaBattle.event.mode,
+            thisBattle.duration || null,
+            thisBattle.type
+          ];
+
+          if (battleInsertParams.includes(undefined)) {
+            console.log(`${userTag} | Undefined Param ${primaryPlayerTag} @${battleDateTimeString}`);
+            console.log(battleInsertParams);
+          } else {
+            // Write battle row
+            let battleInsertPromise = MYSQL_CONNECTION_POOL.execute(`
+            INSERT IGNORE INTO battles
+            (
+              primaryPlayerTag,
+              battleTime,
+              eventId,
+              map,
+              mode,
+              duration,
+              type
+            )
+            VALUES
+            (
+              ?,?,?,?,?,?,?
+            )
+            `,
+              battleInsertParams
+            ).then((rows, err) => {
+              console.log(`${userTag} | Battle Done ${primaryPlayerTag} @${battleDateTimeString}`)
+            });
+            mySQLPromises.push(battleInsertPromise);
           }
+
+
+          // Write player rows
+          let playerInsertPromises = players.map((p) => {
+            let playerInsertParams = [
+              stripPoundSign(p.tag),
+              p.name
+            ];
+
+            if (playerInsertParams.includes(undefined)) {
+              console.log(`${userTag} | Undefined Param ${primaryPlayerTag} @${battleDateTimeString}`);
+              return;
+            } else {
+
+              return MYSQL_CONNECTION_POOL.execute(`
+              INSERT IGNORE INTO players
+              (
+                playerId,
+                name
+              )
+              VALUES
+              (
+                ?,?
+              )
+              `,
+                [
+                  stripPoundSign(p.tag),
+                  p.name
+                ]).then((rows, err) => {
+                  console.log(`${userTag} | Players Done ${primaryPlayerTag} @${battleDateTimeString}`)
+                })
+            }
+          });
+          mySQLPromises.concat(playerInsertPromises);
+
+
+          // Write Player Battle join table
+          // Write player rows
+
+
+          let playerBattleInsertPromises = players.map((p) => {
+
+            let playerBattleInsertParams = [
+              stripPoundSign(p.tag),
+              primaryPlayerTag,
+              battleDateTimeString,
+              p.brawler.id,
+              p.brawler.name,
+              p.brawler.power,
+              p.brawler.trophies,
+              getResult(userTag, p, thisBattle) || null,
+              thisBattle.rank || null,
+              thisBattle.trophyChange || null
+            ];
+
+            if (playerBattleInsertParams.includes(undefined)) {
+              console.log(`${userTag} | Undefined Param ${primaryPlayerTag} @${battleDateTimeString}`);
+              console.log(playerBattleInsertParams);
+              return
+            } else {
+
+              return MYSQL_CONNECTION_POOL.execute(`
+              INSERT IGNORE INTO battles_players
+              (
+                primaryPlayerTag,
+                playerId,
+                battleTime,
+                brawlerId,
+                brawlerName,
+                brawlerPower,
+                trophies,
+                result,
+                rank,
+                trophyChange
+              )
+              VALUES
+              (
+                ?,?,?,?,?,?,?,?,?,?
+              )
+              `,
+                playerBattleInsertParams
+              ).then((rows, err) => {
+                console.log(`${userTag} | Player_Battle Done ${primaryPlayerTag} @${battleDateTimeString}`)
+              })
+            }
+          });
+          mySQLPromises.concat(playerBattleInsertPromises);
+
+          // Allow all MySQL Insertions to complete
+          Promise.all(mySQLPromises).then(() => {
+            resolve();
+          })
         })
       })
 
+      Promise.all(battlePromises).then(() => {
+        resolve();
+      })
     })
-
   })
-
 }
 
 //boisIds.forEach(id => getStarPowerInfo(id))
-boisIds.forEach(id => updateMatches(id))
+let updateMatchPromises = boisIds.map(id => updateMatches(id));
+
+Promise.all(updateMatchPromises).then(() => {
+  console.log(`done`)
+  MYSQL_CONNECTION_POOL.end();
+})
 
 //updateMatches(myUserId)
 
