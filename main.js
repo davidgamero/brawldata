@@ -183,17 +183,20 @@ let updateMatches = (userTag) => {
 
           let mySQLPromises = [];
 
-          let players = [];
+          let dbPlayers = []; // players to be added to the database
+          let allPlayers = []; // all players even ones not for database
           if (thisBattle.teams) {
-            players = thisBattle.teams[0].concat(thisBattle.teams[1]);
+            allPlayers = thisBattle.teams.flat();
+            dbPlayers = thisBattle.teams.flat();
           } else {
-            // Showdown  players
-            players = thisBattle.players;
+            // for solo showdown only include requested player
+            dbPlayers = thisBattle.players.filter((p) => p.tag == `#${userTag}`);
+            allPlayers = thisBattle.players;
           }
 
-          let playerTags = players.map((p) => p.tag)
+          let allPlayerTags = allPlayers.map((p) => p.tag)
 
-          let primaryPlayerTag = stripPoundSign(playerTags.sort()[0]); // First alphanumeric sorted tag
+          let primaryPlayerTag = stripPoundSign(allPlayerTags.sort()[0]); // First alphanumeric sorted tag
 
           let apiBattleTime = metaBattle.battleTime;
           let battleDateTimeString = parseApiDateTime(apiBattleTime);
@@ -216,7 +219,7 @@ let updateMatches = (userTag) => {
           } else {
             // Write battle row
             let battleInsertPromise = MYSQL_CONNECTION_POOL.execute(`
-            INSERT IGNORE INTO battles
+            INSERT INTO battles
             (
               primaryPlayerTag,
               battleTime,
@@ -234,13 +237,20 @@ let updateMatches = (userTag) => {
               battleInsertParams
             ).then((rows, err) => {
               console.log(`${userTag} | Battle Done ${primaryPlayerTag} @${battleDateTimeString}`)
-            });
+            })
+              .catch((err) => {
+                console.log(err);
+                if (err.code == 'ER_DUP_ENTRY') {
+                  console.log(`${userTag} | Duplicate Battle PK ${primaryPlayerTag} @${battleDateTimeString}`)
+
+                }
+              });
             mySQLPromises.push(battleInsertPromise);
           }
 
 
           // Write player rows
-          let playerInsertPromises = players.map((p) => {
+          let playerInsertPromises = dbPlayers.map((p) => {
             let playerInsertParams = [
               stripPoundSign(p.tag),
               p.name
@@ -252,7 +262,7 @@ let updateMatches = (userTag) => {
             } else {
 
               return MYSQL_CONNECTION_POOL.execute(`
-              INSERT IGNORE INTO players
+              INSERT INTO players
               (
                 playerId,
                 name
@@ -265,8 +275,16 @@ let updateMatches = (userTag) => {
                 [
                   stripPoundSign(p.tag),
                   p.name
-                ]).then((rows, err) => {
+                ])
+                .then(([rows, fields]) => {
                   console.log(`${userTag} | Players Done ${primaryPlayerTag} @${battleDateTimeString}`)
+                })
+                .catch((err) => {
+                  console.log(err);
+                  if (err.code == 'ER_DUP_ENTRY') {
+                    console.log(`${userTag} | Duplicate Player PK ${primaryPlayerTag} @${battleDateTimeString}`)
+
+                  }
                 })
             }
           });
@@ -277,11 +295,11 @@ let updateMatches = (userTag) => {
           // Write player rows
 
 
-          let playerBattleInsertPromises = players.map((p) => {
+          let playerBattleInsertPromises = dbPlayers.map((p) => {
 
             let playerBattleInsertParams = [
-              stripPoundSign(p.tag),
               primaryPlayerTag,
+              stripPoundSign(p.tag),
               battleDateTimeString,
               p.brawler.id,
               p.brawler.name,
@@ -299,28 +317,36 @@ let updateMatches = (userTag) => {
             } else {
 
               return MYSQL_CONNECTION_POOL.execute(`
-              INSERT IGNORE INTO battles_players
-              (
-                primaryPlayerTag,
-                playerId,
-                battleTime,
-                brawlerId,
-                brawlerName,
-                brawlerPower,
-                trophies,
-                result,
-                rank,
-                trophyChange
-              )
-              VALUES
-              (
-                ?,?,?,?,?,?,?,?,?,?
-              )
-              `,
+                INSERT INTO battles_players
+                (
+                  primaryPlayerTag,
+                  playerId,
+                  battleTime,
+                  brawlerId,
+                  brawlerName,
+                  brawlerPower,
+                  trophies,
+                  result,
+                  rank,
+                  trophyChange
+                )
+                VALUES
+                (
+                  ?,?,?,?,?,?,?,?,?,?
+                )
+                `,
                 playerBattleInsertParams
-              ).then((rows, err) => {
-                console.log(`${userTag} | Player_Battle Done ${primaryPlayerTag} @${battleDateTimeString}`)
-              })
+              )
+                .then((rows, err) => {
+                  console.log(`${userTag} | Player_Battle Done ${primaryPlayerTag} @${battleDateTimeString}`)
+                })
+                .catch((err) => {
+                  console.log(err);
+                  if (err.code == 'ER_DUP_ENTRY') {
+                    console.log(`${userTag} | Duplicate PlayerBattle PK ${primaryPlayerTag} @${battleDateTimeString}`)
+
+                  }
+                })
             }
           });
           mySQLPromises.concat(playerBattleInsertPromises);
@@ -340,6 +366,7 @@ let updateMatches = (userTag) => {
 }
 
 //boisIds.forEach(id => getStarPowerInfo(id))
+console.log('starting')
 let updateMatchPromises = boisIds.map(id => updateMatches(id));
 
 Promise.all(updateMatchPromises).then(() => {
@@ -349,8 +376,14 @@ Promise.all(updateMatchPromises).then(() => {
 
 //updateMatches(myUserId)
 
-// MYSQL_CONNECTION_POOL.query(`select * from players`, (err, rows, fields) => {
-//   rows.forEach((row) => {
-//     console.log(row);
+// MYSQL_CONNECTION_POOL.query(`select * from players`).then(([rows, fields]) => {
+//   let playerIds = rows.map((row) => row.playerId);
+//   console.log(`Fetching matches for ${playerIds.length} players mapped`);
+
+//   let updateMatchPromises = playerIds.map(id => updateMatches(id));
+//   Promise.all(updateMatchPromises).then(() => {
+//     console.log(`done`)
+//     MYSQL_CONNECTION_POOL.end();
+//     console.log(`Updated matches for ${playerIds.length} players`);
 //   })
 // })
