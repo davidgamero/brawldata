@@ -219,32 +219,30 @@ let updateMatches = (userTag) => {
           } else {
             // Write battle row
             let battleInsertPromise = MYSQL_CONNECTION_POOL.execute(`
-            INSERT INTO battles
-            (
-              primaryPlayerTag,
-              battleTime,
-              eventId,
-              map,
-              mode,
-              duration,
-              type
-            )
-            VALUES
-            (
-              ?,?,?,?,?,?,?
-            )
-            `,
+              INSERT IGNORE INTO battles
+              (
+                primaryPlayerTag,
+                battleTime,
+                eventId,
+                map,
+                mode,
+                duration,
+                type
+              )
+              VALUES
+              (
+                ?,?,?,?,?,?,?
+              )
+              `,
               battleInsertParams
             ).then((rows, err) => {
               console.log(`${userTag} | Battle Done ${primaryPlayerTag} @${battleDateTimeString}`)
-            })
-              .catch((err) => {
-                console.log(err);
-                if (err.code == 'ER_DUP_ENTRY') {
-                  console.log(`${userTag} | Duplicate Battle PK ${primaryPlayerTag} @${battleDateTimeString}`)
-
-                }
-              });
+            }).catch((err) => {
+              console.log(err);
+              if (err.code == 'ER_DUP_ENTRY') {
+                console.log(`${userTag} | Duplicate Battle PK ${primaryPlayerTag} @${battleDateTimeString}`)
+              }
+            });
             mySQLPromises.push(battleInsertPromise);
           }
 
@@ -262,7 +260,7 @@ let updateMatches = (userTag) => {
             } else {
 
               return MYSQL_CONNECTION_POOL.execute(`
-              INSERT INTO players
+              INSERT IGNORE INTO players
               (
                 playerId,
                 name
@@ -317,7 +315,7 @@ let updateMatches = (userTag) => {
             } else {
 
               return MYSQL_CONNECTION_POOL.execute(`
-                INSERT INTO battles_players
+                INSERT IGNORE INTO battles_players
                 (
                   primaryPlayerTag,
                   playerId,
