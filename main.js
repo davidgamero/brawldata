@@ -372,6 +372,7 @@ let updateMatchPromises = boisIds.map(id => updateMatches(id));
 Promise.all(updateMatchPromises).then(() => {
   console.log(`done`)
   MYSQL_CONNECTION_POOL.end();
+  process.exit();
 })
 
 //updateMatches(myUserId)
