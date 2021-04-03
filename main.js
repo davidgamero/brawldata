@@ -2,7 +2,20 @@ var axios = require('axios');
 const mysql = require('mysql2/promise');
 require('dotenv').config(); // load environment variables
 
-authToken = process.env.BRAWLSTARS_AUTH_TOKEN
+// Check all environment variables are defined
+let env_vars = [
+  'MYSQL_HOST',
+  'MYSQL_USER',
+  'MYSQL_PASSWORD',
+  'MYSQL_DATABASE',
+  'BRAWLSTARS_AUTH_TOKEN'
+];
+env_vars.forEach((env_var) => {
+  if (process.env[env_var] === undefined) {
+    throw (`Undefined environment variable: ${env_var}`);
+  }
+})
+
 
 const MYSQL_CONNECTION_POOL = mysql.createPool({
   host: process.env.MYSQL_HOST,
@@ -13,6 +26,8 @@ const MYSQL_CONNECTION_POOL = mysql.createPool({
   connectionLimit: 10,
   queueLimit: 0
 });
+
+let authToken = process.env.BRAWLSTARS_AUTH_TOKEN
 
 const BRAWLSTARS_ENDPOINT = 'https://api.brawlstars.com/v1'
 
