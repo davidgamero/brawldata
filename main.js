@@ -2,6 +2,8 @@ var axios = require('axios');
 const mysql = require('mysql2/promise');
 require('dotenv').config(); // load environment variables
 
+var parseApiDateTime = require('./util/parseApiDateTime.js');
+
 // Check all environment variables are defined
 let env_vars = [
   'MYSQL_HOST',
@@ -33,7 +35,7 @@ const BRAWLSTARS_ENDPOINT = 'https://api.brawlstars.com/v1'
 
 let stripPoundSign = (tag) => tag.replace(/[#]/g, '');
 
-var config = {
+var brawlersConfig = {
   method: 'get',
   url: `${BRAWLSTARS_ENDPOINT}/brawlers`,
   headers: {
@@ -63,7 +65,7 @@ let joshUserId = "8YUCQCRU2";
 
 let boisIds = [myUserId, wakaUserId, joshUserId];
 
-let getBrawlers = () => {
+let apiRequestPromise = (config) => {
   return new Promise((resolve, reject) => {
     axios(config)
       .then(function (response) {
@@ -76,30 +78,19 @@ let getBrawlers = () => {
   })
 }
 
+let getBrawlers = () => {
+  let config = brawlersConfig;
+  return apiRequestPromise(config);
+}
+
 let getPlayer = (playertag) => {
-  return new Promise((resolve, reject) => {
-    axios(playerConfig(playertag))
-      .then(function (response) {
-        resolve(response.data);
-      })
-      .catch(function (error) {
-        console.log(error);
-        reject(error);
-      });
-  })
+  let config = playerConfig(playertag);
+  return apiRequestPromise(config);
 }
 
 let getBattleLog = (playertag) => {
-  return new Promise((resolve, reject) => {
-    axios(battleLogConfig(playertag))
-      .then(function (response) {
-        resolve(response.data);
-      })
-      .catch(function (error) {
-        console.log(error);
-        reject(error);
-      });
-  })
+  let config = battleLogConfig(playertag)
+  return apiRequestPromise(config);
 }
 
 let brawlers_promise = getBrawlers();
@@ -162,23 +153,6 @@ let getResult = (queryUserTag, player, battle) => {
 }
 
 /**
- * The stupid API format doesn't folllow ISO standard so we gotta do this gross shit
- * @param apiDateTime 
- */
-let parseApiDateTime = (apiDateTime) => {
-  let bt = apiDateTime;
-
-  let parsed = bt.substr(0, 4) + '-' +
-    bt.substr(4, 2) + '-' +
-    bt.substr(6, 2) + ' ' +
-    bt.substr(9, 2) + ':' +
-    bt.substr(11, 2) + ':' +
-    bt.substr(13, 2);
-
-  return parsed;
-}
-
-/**
  * Query matches for player and insert into MySQL
  * @param {*} userTag 
  */
@@ -228,7 +202,11 @@ let updateMatches = (userTag) => {
             thisBattle.type
           ];
 
-          if (battleInsertParams.includes(undefined)) {
+          if (metaBattle.event.id == 0) {
+            // These matches have map=null and mode=undefined, so we skip
+            console.log(`${userTag} | Skipping event.id=0 ${primaryPlayerTag} @${battleDateTimeString}`);
+          } else if (battleInsertParams.includes(undefined)) {
+            // Missing parameters check
             console.log(`${userTag} | Undefined Param ${primaryPlayerTag} @${battleDateTimeString}`);
             console.log(battleInsertParams);
           } else {
