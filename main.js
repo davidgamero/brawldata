@@ -197,7 +197,7 @@ let updateMatches = (userTag) => {
             battleDateTimeString,
             metaBattle.event.id,
             metaBattle.event.map,
-            metaBattle.event.mode,
+            metaBattle.event.mode || thisBattle.mode,
             thisBattle.duration || null,
             thisBattle.type
           ];
