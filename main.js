@@ -358,24 +358,25 @@ let updateMatches = (userTag) => {
 
 //boisIds.forEach(id => getStarPowerInfo(id))
 console.log('starting')
-let updateMatchPromises = boisIds.map(id => updateMatches(id));
+// let updateMatchPromises = boisIds.map(id => updateMatches(id));
 
-Promise.all(updateMatchPromises).then(() => {
-  console.log(`done`)
-  MYSQL_CONNECTION_POOL.end();
-  process.exit();
-})
+// Promise.all(updateMatchPromises).then(() => {
+//   console.log(`done`)
+//   MYSQL_CONNECTION_POOL.end();
+//   process.exit();
+// })
 
 //updateMatches(myUserId)
 
-// MYSQL_CONNECTION_POOL.query(`select * from players`).then(([rows, fields]) => {
-//   let playerIds = rows.map((row) => row.playerId);
-//   console.log(`Fetching matches for ${playerIds.length} players mapped`);
+// Update all players that have polling enabled
+MYSQL_CONNECTION_POOL.query(`SELECT * from players where enablePolling=1`).then(([rows, fields]) => {
+  let playerIds = rows.map((row) => row.playerId);
+  console.log(`Fetching battles for ${playerIds.length} players mapped`);
 
-//   let updateMatchPromises = playerIds.map(id => updateMatches(id));
-//   Promise.all(updateMatchPromises).then(() => {
-//     console.log(`done`)
-//     MYSQL_CONNECTION_POOL.end();
-//     console.log(`Updated matches for ${playerIds.length} players`);
-//   })
-// })
+  let updateMatchPromises = playerIds.map(id => updateMatches(id));
+  Promise.all(updateMatchPromises).then(() => {
+    console.log(`done`)
+    MYSQL_CONNECTION_POOL.end();
+    console.log(`Updated battles for ${playerIds.length} players`);
+  })
+})
