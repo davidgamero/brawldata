@@ -1,8 +1,11 @@
-var axios = require('axios');
-const mysql = require('mysql2/promise');
-require('dotenv').config(); // load environment variables
+import axios from 'axios'
+import mysql from 'mysql2/promise'
+import dotenv from 'dotenv'
+dotenv.config()// load environment variables
 
-var parseApiDateTime = require('./util/parseApiDateTime.js');
+import { parseApiDateTime } from './util/parseApiDateTime.js'
+import { getBrawlStarsAxios } from './net/brawlstarsApi.js'
+
 
 // Check all environment variables are defined
 let env_vars = [
@@ -10,7 +13,8 @@ let env_vars = [
   'MYSQL_USER',
   'MYSQL_PASSWORD',
   'MYSQL_DATABASE',
-  'BRAWLSTARS_AUTH_TOKEN'
+  'BRAWLSTARS_AUTH_TOKEN',
+  'BRAWLSTARS_ENDPOINT'
 ];
 env_vars.forEach((env_var) => {
   if (process.env[env_var] === undefined) {
@@ -18,6 +22,7 @@ env_vars.forEach((env_var) => {
   }
 })
 
+let brawlStarsAxios = getBrawlStarsAxios(process.env.BRAWLSTARS_ENDPOINT, process.env.BRAWLSTARS_AUTH_TOKEN)
 
 const MYSQL_CONNECTION_POOL = mysql.createPool({
   host: process.env.MYSQL_HOST,
@@ -29,19 +34,8 @@ const MYSQL_CONNECTION_POOL = mysql.createPool({
   queueLimit: 0
 });
 
-let authToken = process.env.BRAWLSTARS_AUTH_TOKEN
-
-const BRAWLSTARS_ENDPOINT = 'https://api.brawlstars.com/v1'
-
 let stripPoundSign = (tag) => tag.replace(/[#]/g, '');
 
-var brawlersConfig = {
-  method: 'get',
-  url: `${BRAWLSTARS_ENDPOINT}/brawlers`,
-  headers: {
-    'Authorization': authToken
-  }
-};
 
 var playerConfig = (playerid) => ({
   method: 'get',
@@ -89,11 +83,9 @@ let getPlayer = (playertag) => {
 }
 
 let getBattleLog = (playertag) => {
-  let config = battleLogConfig(playertag)
-  return apiRequestPromise(config);
+  return brawlStarsAxios.get(`players/%23${playertag}/battlelog`);
 }
 
-let brawlers_promise = getBrawlers();
 
 let getStarPowerInfo = (usertag) => {
   let player_promise = getPlayer(usertag);
@@ -163,8 +155,8 @@ let updateMatches = (userTag) => {
     let battlelogPromise = getBattleLog(userTag);
 
     battlelogPromise.then((battlelogresponse) => {
-      console.log(`${userTag} | recieved battle log with ${battlelogresponse.items.length} items`);
-      let battles = battlelogresponse.items;
+      let battles = battlelogresponse.data.items;
+      console.log(`${userTag} | recieved battle log with ${battles.length} items`);
 
       let battlePromises = battles.map((metaBattle) => {
         return new Promise((resolve, reject) => {
@@ -367,6 +359,8 @@ console.log('starting')
 // })
 
 //updateMatches(myUserId)
+
+// let brawlers_promise = getBrawlers();
 
 // Update all players that have polling enabled
 MYSQL_CONNECTION_POOL.query(`SELECT * from players where enablePolling=1`).then(([rows, fields]) => {

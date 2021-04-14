@@ -2,7 +2,7 @@
  * The stupid API format doesn't folllow ISO standard so we gotta do this gross shit
  * @param apiDateTime 
  */
-let parseApiDateTime = (apiDateTime) => {
+export let parseApiDateTime = (apiDateTime) => {
     let bt = apiDateTime;
 
     let parsed = bt.substr(0, 4) + '-' +
@@ -14,5 +14,3 @@ let parseApiDateTime = (apiDateTime) => {
 
     return parsed;
 }
-
-module.exports = parseApiDateTime;
