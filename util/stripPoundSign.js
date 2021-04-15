@@ -1,0 +1,1 @@
+export const stripPoundSign = (tag) => tag.replace(/[#]/g, '');

@@ -8,7 +8,9 @@ import { getBrawlStarsAxios } from './net/brawlstarsApi.js'
 import { BATTLE_INSERT_QUERY } from './db/battleInsertQuery.js'
 import { BATTLES_PLAYERS_INSERT_QUERY } from './db/battlesPlayersInsertQuery.js'
 import { PLAYER_INSERT_QUERY } from './db/playerInsertQuery.js'
-
+import { getApiBattleResult } from './util/getApiBattleResult.js'
+import { stripPoundSign } from './util/stripPoundSign.js'
+import { flipResult } from './util/flipResult.js'
 
 // Check all environment variables are defined
 let env_vars = [
@@ -37,8 +39,6 @@ const MYSQL_CONNECTION_POOL = mysql.createPool({
   queueLimit: 0
 });
 
-let stripPoundSign = (tag) => tag.replace(/[#]/g, '');
-
 let myUserId = "92YL98GPG";
 let wakaUserId = "8P0RGY9VJ";
 let joshUserId = "8YUCQCRU2";
@@ -47,7 +47,6 @@ let boisIds = [myUserId, wakaUserId, joshUserId];
 
 
 let getBrawlers = () => {
-  let config = brawlersConfig;
   return brawlStarsAxios.get(`brawlers`);
 }
 
@@ -61,9 +60,9 @@ let getBattleLog = (playertag) => {
 
 
 let getStarPowerInfo = (usertag) => {
-  let player_promise = getPlayer(usertag);
+  let playerPromise = getPlayer(usertag);
 
-  Promise.all([brawlers_promise, player_promise])
+  Promise.all([brawlersPromise, playerPromise])
     .then(([brawlers, player]) => {
       brawlers = brawlers.items; //nested shenanigans
 
@@ -95,26 +94,6 @@ let getStarPowerInfo = (usertag) => {
       console.log('Brawlers under lvl 10: ' + player.brawlers.filter(b => b.power < 10).map(b => b.name))
       console.log(' ')
     })
-}
-
-const flipResult = (result) => result == 'defeat' ? 'victory' : 'defeat';
-
-let getResult = (queryUserTag, player, battle) => {
-  let playerTag = stripPoundSign(player.tag);
-
-  if (!battle.teams || battle.teams.length != 2) {
-    return null; // showdown games or errors in transmissioin
-  }
-  let team0tags = battle.teams[0].map((p) => stripPoundSign(p.tag));
-  let team1tags = battle.teams[1].map((p) => stripPoundSign(p.tag)); // not used, maybe assert a sanity check
-
-  let getTeamNumber = (tag) => team0tags.includes(tag) ? 0 : 1;
-
-  if (getTeamNumber(playerTag) == getTeamNumber(queryUserTag)) {
-    return battle.result;
-  } else {
-    return flipResult(battle.result);
-  }
 }
 
 /**
@@ -230,8 +209,6 @@ let updateMatches = (userTag) => {
 
           // Write Player Battle join table
           // Write player rows
-
-
           let playerBattleInsertPromises = dbPlayers.map((p) => {
 
             let playerBattleInsertParams = [
@@ -242,7 +219,7 @@ let updateMatches = (userTag) => {
               p.brawler.name,
               p.brawler.power,
               p.brawler.trophies,
-              getResult(userTag, p, thisBattle) || null,
+              getApiBattleResult(userTag, p, thisBattle) || null,
               thisBattle.rank || null,
               thisBattle.trophyChange || null
             ];
@@ -287,21 +264,14 @@ let updateMatches = (userTag) => {
 
 //boisIds.forEach(id => getStarPowerInfo(id))
 console.log('starting')
-// let updateMatchPromises = boisIds.map(id => updateMatches(id));
-
-// Promise.all(updateMatchPromises).then(() => {
-//   console.log(`done`)
-//   MYSQL_CONNECTION_POOL.end();
-//   process.exit();
-// })
 
 //updateMatches(myUserId)
 
-// let brawlers_promise = getBrawlers();
+let brawlersPromise = getBrawlers();
 
 // Update all players that have polling enabled
 MYSQL_CONNECTION_POOL.query(`SELECT * from players where enablePolling = 1`).then(([rows, fields]) => {
-  let playerIds = rows.map((row) => row.playerId);
+  let playerIds = rows.map((row) => row.playerId)
   console.log(`Fetching battles for ${playerIds.length} players mapped`);
 
   let updateMatchPromises = playerIds.map(id => updateMatches(id));
